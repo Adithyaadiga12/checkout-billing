@@ -3,7 +3,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.billing import Cart, calculate_bill
-from app.config import AppConfig, OfferConfig, TaxConfig
+from app.config import AppConfig, CouponConfig, OfferConfig, TaxConfig
 from app.models import Item
 
 
@@ -18,6 +18,10 @@ def config() -> AppConfig:
             discount_percent=10.0,
         ),
         tax=TaxConfig(name="GST", percent=18.0),
+        coupons={
+            "WELCOME10": CouponConfig(type="percent", value=10.0, min_subtotal=0),
+            "FLAT50": CouponConfig(type="flat", value=50.0, min_subtotal=500.0),
+        },
     )
 
 
@@ -180,3 +184,69 @@ def test_zero_tax_config():
     bill = calculate_bill(items, cfg)
     assert bill.tax == 0
     assert bill.total == 100
+
+
+# ---------- Coupons ----------
+
+def test_percent_coupon_applies_to_subtotal(config):
+    items = [Item(name="X", price=300, quantity=1)]
+    bill = calculate_bill(items, config, coupon_code="WELCOME10")
+    assert bill.coupon_code == "WELCOME10"
+    assert bill.coupon_discount == 30.0  # 10% of 300
+    assert bill.offer_applied is False   # 300 < 1000 threshold
+    # taxable = 300 - 30 = 270, tax = 270 * 0.18 = 48.60
+    assert bill.taxable_amount == 270.0
+    assert bill.tax == 48.6
+    assert bill.total == 318.6
+
+
+def test_flat_coupon_respects_min_subtotal_not_met(config):
+    # 300 < FLAT50.min_subtotal (500) — coupon is on the bill but discount stays 0
+    items = [Item(name="X", price=300, quantity=1)]
+    bill = calculate_bill(items, config, coupon_code="FLAT50")
+    assert bill.coupon_code == "FLAT50"
+    assert bill.coupon_discount == 0.0
+    assert bill.coupon_min_subtotal == 500.0
+    # Bill should compute as if no coupon
+    assert bill.total == round(300 * 1.18, 2)
+
+
+def test_flat_coupon_applies_when_min_met(config):
+    items = [Item(name="X", price=600, quantity=1)]
+    bill = calculate_bill(items, config, coupon_code="FLAT50")
+    assert bill.coupon_discount == 50.0
+    assert bill.taxable_amount == 550.0
+    assert bill.tax == 99.0  # 550 * 0.18
+    assert bill.total == 649.0
+
+
+def test_coupon_stacks_with_threshold_offer(config):
+    # subtotal 1300 -> 10% offer = 130, WELCOME10 = 130 -> total discount 260
+    items = [
+        Item(name="A", price=800, quantity=1),
+        Item(name="B", price=500, quantity=1),
+    ]
+    bill = calculate_bill(items, config, coupon_code="WELCOME10")
+    assert bill.subtotal == 1300.0
+    assert bill.offer_applied is True
+    assert bill.discount == 130.0
+    assert bill.coupon_discount == 130.0
+    assert bill.taxable_amount == 1040.0
+    assert bill.tax == 187.2
+    assert bill.total == 1227.2
+
+
+def test_unknown_coupon_is_ignored(config):
+    items = [Item(name="X", price=300, quantity=1)]
+    bill = calculate_bill(items, config, coupon_code="NOPE")
+    assert bill.coupon_code is None
+    assert bill.coupon_discount == 0.0
+
+
+def test_cart_clear_also_drops_coupon():
+    cart = Cart()
+    cart.add(Item(name="A", price=10, quantity=1))
+    cart.set_coupon("WELCOME10")
+    cart.clear()
+    assert cart.coupon_code is None
+    assert cart.is_empty()

@@ -32,6 +32,10 @@ class Bill(BaseModel):
     offer_threshold: float
     amount_to_offer: float  # 0 when offer already applied; otherwise "spend this much more"
     discount: float
+    coupon_code: str | None = None
+    coupon_label: str = ""           # e.g. "WELCOME10 (10% off)" or "FLAT50 (Rs. 50 off)"
+    coupon_discount: float = 0.0     # 0 when no code set or when min_subtotal not yet met
+    coupon_min_subtotal: float = 0.0 # surfaced for "needs Rs. X more" UI
     taxable_amount: float
     tax_name: str
     tax_percent: float

@@ -9,3 +9,16 @@ offer:
 tax:
   name: "GST"
   percent: 18.0
+
+# Coupons stack with the threshold offer above.
+# type: "percent" applies value% off subtotal; "flat" subtracts value rupees.
+# Codes are case-insensitive; min_subtotal must be met for the coupon to apply.
+coupons:
+  WELCOME10:
+    type: percent
+    value: 10
+    min_subtotal: 0
+  FLAT50:
+    type: flat
+    value: 50
+    min_subtotal: 500

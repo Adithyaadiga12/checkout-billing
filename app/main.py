@@ -17,19 +17,34 @@ app = FastAPI(title="Checkout Billing System")
 cart = Cart()
 
 
-def _render_cart(request: Request) -> HTMLResponse:
+def _render_cart(request: Request, *, coupon_error: str | None = None, coupon_flash: str | None = None) -> HTMLResponse:
     config = get_config()
-    bill = calculate_bill(cart.items, config) if not cart.is_empty() else None
+    bill = (
+        calculate_bill(cart.items, config, cart.coupon_code)
+        if not cart.is_empty()
+        else None
+    )
     return templates.TemplateResponse(
         "partials/cart.html",
-        {"request": request, "cart": cart, "bill": bill, "config": config},
+        {
+            "request": request,
+            "cart": cart,
+            "bill": bill,
+            "config": config,
+            "coupon_error": coupon_error,
+            "coupon_flash": coupon_flash,
+        },
     )
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     config = get_config()
-    bill = calculate_bill(cart.items, config) if not cart.is_empty() else None
+    bill = (
+        calculate_bill(cart.items, config, cart.coupon_code)
+        if not cart.is_empty()
+        else None
+    )
     return templates.TemplateResponse(
         "index.html",
         {"request": request, "cart": cart, "bill": bill, "config": config},
@@ -46,7 +61,6 @@ def add_item(
     try:
         item = Item(name=name, price=price, quantity=quantity)
     except ValidationError as e:
-        # Pull the first message for a friendly inline error
         first = e.errors()[0]
         msg = f"{first['loc'][-1]}: {first['msg']}"
         config = get_config()
@@ -55,7 +69,7 @@ def add_item(
             {
                 "request": request,
                 "cart": cart,
-                "bill": calculate_bill(cart.items, config) if not cart.is_empty() else None,
+                "bill": calculate_bill(cart.items, config, cart.coupon_code) if not cart.is_empty() else None,
                 "config": config,
                 "error": msg,
             },
@@ -89,10 +103,46 @@ def clear_cart(request: Request):
     return _render_cart(request)
 
 
+@app.post("/cart/coupon", response_class=HTMLResponse)
+def apply_coupon(request: Request, code: str = Form(...)):
+    config = get_config()
+    normalized = code.strip().upper()
+    error: str | None = None
+    flash: str | None = None
+
+    if not normalized:
+        error = "Please enter a coupon code."
+    elif normalized not in config.coupons:
+        error = f"Coupon code '{normalized}' is not valid."
+    else:
+        coupon = config.coupons[normalized]
+        subtotal = sum(it.line_total for it in cart.items)
+        if subtotal < coupon.min_subtotal:
+            error = (
+                f"Minimum cart value {config.currency_symbol}{coupon.min_subtotal:.2f} "
+                f"required for {normalized}."
+            )
+        else:
+            cart.set_coupon(normalized)
+            flash = f"Coupon {normalized} applied."
+
+    return _render_cart(request, coupon_error=error, coupon_flash=flash)
+
+
+@app.delete("/cart/coupon", response_class=HTMLResponse)
+def remove_coupon(request: Request):
+    cart.set_coupon(None)
+    return _render_cart(request)
+
+
 @app.get("/bill", response_class=HTMLResponse)
 def view_bill(request: Request):
     config = get_config()
-    bill = calculate_bill(cart.items, config) if not cart.is_empty() else None
+    bill = (
+        calculate_bill(cart.items, config, cart.coupon_code)
+        if not cart.is_empty()
+        else None
+    )
     return templates.TemplateResponse(
         "bill.html",
         {"request": request, "bill": bill, "config": config},

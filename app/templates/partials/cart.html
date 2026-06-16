@@ -97,9 +97,15 @@
         <dd class="tabular-nums">{{ config.currency_symbol }}{{ "%.2f"|format(bill.subtotal) }}</dd>
       </div>
       <div class="flex justify-between {{ 'text-emerald-700' if bill.offer_applied else 'text-slate-400' }}">
-        <dt>Discount</dt>
+        <dt>Offer discount</dt>
         <dd class="tabular-nums">&minus; {{ config.currency_symbol }}{{ "%.2f"|format(bill.discount) }}</dd>
       </div>
+      {% if bill.coupon_code and bill.coupon_discount > 0 %}
+        <div class="flex justify-between text-emerald-700">
+          <dt>Coupon ({{ bill.coupon_code }})</dt>
+          <dd class="tabular-nums">&minus; {{ config.currency_symbol }}{{ "%.2f"|format(bill.coupon_discount) }}</dd>
+        </div>
+      {% endif %}
       <div class="flex justify-between text-slate-600">
         <dt>{{ bill.tax_name }} ({{ bill.tax_percent }}%)</dt>
         <dd class="tabular-nums">{{ config.currency_symbol }}{{ "%.2f"|format(bill.tax) }}</dd>
@@ -109,6 +115,55 @@
         <dd class="tabular-nums">{{ config.currency_symbol }}{{ "%.2f"|format(bill.total) }}</dd>
       </div>
     </dl>
+
+    <!-- Coupon section -->
+    <div class="mt-5 pt-4 border-t border-slate-100">
+      {% if cart.coupon_code and bill.coupon_discount > 0 %}
+        <div class="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm">
+          <div class="flex items-center gap-2 text-emerald-800 min-w-0">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+            </svg>
+            <span class="truncate"><strong>{{ cart.coupon_code }}</strong> &middot; saved {{ config.currency_symbol }}{{ "%.2f"|format(bill.coupon_discount) }}</span>
+          </div>
+          <button hx-delete="/cart/coupon"
+                  hx-target="#cart-region"
+                  hx-swap="outerHTML swap:120ms"
+                  class="text-emerald-700 hover:text-red-600 transition flex-shrink-0 ml-2 text-lg leading-none"
+                  aria-label="Remove coupon">&times;</button>
+        </div>
+      {% elif cart.coupon_code %}
+        <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 flex items-center justify-between gap-2">
+          <span><strong>{{ cart.coupon_code }}</strong> needs cart value &ge; {{ config.currency_symbol }}{{ "%.2f"|format(bill.coupon_min_subtotal) }}.</span>
+          <button hx-delete="/cart/coupon" hx-target="#cart-region" hx-swap="outerHTML swap:120ms"
+                  class="text-amber-700 hover:text-red-600 transition text-lg leading-none flex-shrink-0"
+                  aria-label="Remove coupon">&times;</button>
+        </div>
+      {% else %}
+        <form hx-post="/cart/coupon"
+              hx-target="#cart-region"
+              hx-swap="outerHTML swap:120ms"
+              hx-on::after-request="if(event.detail.successful) this.reset()"
+              class="flex gap-2">
+          <input name="code"
+                 placeholder="Have a coupon? Enter code"
+                 maxlength="40"
+                 class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase placeholder:normal-case placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition" />
+          <button type="submit"
+                  class="bg-slate-800 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-slate-900 transition">
+            Apply
+          </button>
+        </form>
+        {% if coupon_error %}
+          <div class="mt-2 text-xs text-red-600 flex items-center gap-1.5">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <span>{{ coupon_error }}</span>
+          </div>
+        {% endif %}
+      {% endif %}
+    </div>
 
     <a href="/bill"
        class="mt-5 flex items-center justify-center gap-2 w-full bg-emerald-600 text-white rounded-lg px-4 py-2.5 font-medium hover:bg-emerald-700 active:bg-emerald-800 transition shadow-sm">

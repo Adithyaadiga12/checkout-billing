@@ -61,6 +61,12 @@
           <dt>{{ bill.offer_name }}{{ '' if bill.offer_applied else ' (not eligible)' }}</dt>
           <dd class="tabular-nums">&minus; {{ config.currency_symbol }}{{ "%.2f"|format(bill.discount) }}</dd>
         </div>
+        {% if bill.coupon_code and bill.coupon_discount > 0 %}
+          <div class="flex justify-between text-emerald-700">
+            <dt>Coupon {{ bill.coupon_label }}</dt>
+            <dd class="tabular-nums">&minus; {{ config.currency_symbol }}{{ "%.2f"|format(bill.coupon_discount) }}</dd>
+          </div>
+        {% endif %}
         <div class="flex justify-between">
           <dt class="text-slate-600">Taxable amount</dt>
           <dd class="tabular-nums">{{ config.currency_symbol }}{{ "%.2f"|format(bill.taxable_amount) }}</dd>

@@ -15,7 +15,7 @@ Built as a take-home case study.
 | Frontend    | **HTMX** for partial swaps + **Tailwind CSS** via CDN |
 | Validation  | **Pydantic v2**                                       |
 | Config      | **PyYAML** (`config.yaml` — offer & tax are editable) |
-| Tests       | **pytest** (18 unit tests)                            |
+| Tests       | **pytest** (24 unit tests)                            |
 | Server      | **uvicorn**                                           |
 
 No database. The cart lives in memory for one server process — keeps the demo focused on the billing logic, which is what the assignment actually asks for.
@@ -60,20 +60,22 @@ pytest -v
 2. Add items using the **Name / Price / Quantity** form. The cart updates without a page reload (HTMX swap).
 3. Adjust quantity inline with the **−** / **+** buttons next to each line, or remove a line with the trash icon.
 4. While below the offer threshold the cart shows **"Add Rs. X more to unlock the offer"**. Once you cross it, that turns into a green confirmation showing how much was saved.
-5. Click **View final bill** to see the printable bill view (`/bill`). Use **Print bill** to save as PDF.
+5. Apply a **coupon code** in the field below the totals. Try `WELCOME10` (10% off, no minimum) or `FLAT50` (Rs. 50 off, minimum cart value Rs. 500). The coupon stacks with the threshold offer.
+6. Click **View final bill** to see the printable bill view (`/bill`). Use **Print bill** to save as PDF.
 
 ---
 
 ## How the math works
 
-For a cart of items, the bill is computed in five steps:
+For a cart of items, the bill is computed in six steps:
 
 ```
-1. subtotal       = sum(item.price × item.quantity)
-2. discount       = subtotal × offer.discount_percent / 100   (only if subtotal ≥ offer.threshold)
-3. taxable_amount = subtotal − discount
-4. tax            = taxable_amount × tax.percent / 100
-5. total          = taxable_amount + tax
+1. subtotal          = sum(item.price × item.quantity)
+2. offer_discount    = subtotal × offer.discount_percent / 100   (only if subtotal ≥ offer.threshold)
+3. coupon_discount   = coupon-defined amount                    (only if a valid coupon is applied)
+4. taxable_amount    = max(0, subtotal − offer_discount − coupon_discount)
+5. tax               = taxable_amount × tax.percent / 100
+6. total             = taxable_amount + tax
 ```
 
 Every intermediate value is rounded to 2 decimal places, matching how most POS systems display money.
@@ -102,6 +104,8 @@ All endpoints render HTML (mostly HTMX partials for the cart). The app is server
 | POST   | `/items/{index}/inc`  | `#cart-region` partial | Increment line quantity by 1            |
 | POST   | `/items/{index}/dec`  | `#cart-region` partial | Decrement line quantity by 1 (removes when it hits 0) |
 | POST   | `/cart/clear`         | `#cart-region` partial | Empty the cart                           |
+| POST   | `/cart/coupon`        | `#cart-region` partial | Apply a coupon (form field: `code`, case-insensitive). Renders inline error on invalid code or unmet minimum. |
+| DELETE | `/cart/coupon`        | `#cart-region` partial | Remove the applied coupon                        |
 | GET    | `/bill`               | Full page    | Final printable bill (friendly empty state if cart is empty) |
 
 ---
@@ -122,6 +126,29 @@ tax:
 ```
 
 Restart the server after editing. The default rule is: **if `subtotal ≥ threshold`, apply `discount_percent` off the subtotal.**
+
+### Coupon codes
+
+Codes live in the same `config.yaml`:
+
+```yaml
+coupons:
+  WELCOME10:
+    type: percent
+    value: 10
+    min_subtotal: 0
+  FLAT50:
+    type: flat
+    value: 50
+    min_subtotal: 500
+```
+
+| Code        | Effect                          | Minimum cart value |
+| ----------- | ------------------------------- | ------------------ |
+| `WELCOME10` | 10% off subtotal                | none               |
+| `FLAT50`    | Rs. 50 off                      | Rs. 500            |
+
+Codes are matched case-insensitively. Only one coupon can be active at a time — applying a new code replaces the previous one. Coupons **stack with** the threshold offer (both lines show separately on the bill so the math stays transparent). If the cart drops below a coupon's minimum, the code stays attached to the cart but the discount goes to Rs. 0 with a "needs cart value ≥ Rs. X" warning, so the user can either add more items or remove the coupon.
 
 ---
 
@@ -154,7 +181,8 @@ checkout-billing/
 - **Currency:** Indian Rupees (`Rs.`) by default — easy to change in `config.yaml`.
 - **Cart scope:** in-memory, single process. Refreshing the browser keeps the cart (server-side). Restarting the server clears it. A real deployment would use sessions or a DB.
 - **Offer rule:** one simple threshold-based percentage discount. The threshold is inclusive (`subtotal ≥ 1000` triggers the 10%).
-- **Tax:** flat percentage applied to `(subtotal − discount)`. No per-item tax slabs, no inclusive-tax logic.
+- **Coupons:** two demo codes live in `config.yaml` (percent and flat). They stack with the threshold offer and are applied to the original subtotal — i.e. each line on the bill is computed independently from the subtotal, not chained. This keeps the bill readable; a stricter "highest-discount-wins" rule would also be defensible.
+- **Tax:** flat percentage applied to `(subtotal − offer_discount − coupon_discount)`. No per-item tax slabs, no inclusive-tax logic.
 - **Rounding:** every money value is rounded to 2 decimal places at each step (subtotal, discount, taxable amount, tax, total) to match how POS systems usually display amounts.
 - **Item merging:** adding the same name + same price increases the quantity of the existing line. Same name with a different price stays as a separate line (treated as a different SKU).
 - **Validation:** price must be > 0, quantity must be a positive integer, name must be non-blank ≤ 80 chars. Bad input returns a friendly inline error in the cart panel.
@@ -174,4 +202,4 @@ Three specific moments where it added clear value:
 2. **HTMX patterns.** It got the swap targets (`hx-target="#cart-region"`, `hx-swap="outerHTML"`) and the post-submit form reset (`hx-on::after-request`) right on the first try — those are the kind of small idioms that are easy to look up but slow to assemble.
 3. **Test edge cases.** The test for "subtotal exactly at the threshold" (Rs. 1000 → offer applies because of the `≥` rule) and the rounding test came from Claude prompting me to think about boundary conditions I hadn't written down.
 
-**Challenges.** The main thing I had to push back on was scope: the assistant initially proposed stacking offers, coupon codes, and a persistence layer, all of which the brief explicitly asked to keep simple. Keeping the offer logic to one well-tested rule made the code easier to defend in the interview. The second was rounding — getting consistent two-decimal-place behaviour required rounding at each intermediate step rather than only at the end, which the test suite now pins down.
+**Challenges.** Scope control was the main one. The brief said "simple offer", so I started with one threshold-based percentage discount and shipped that first. Coupon codes came later, as a deliberate extension — I picked that addition over things like multi-currency, persistence, or admin UI because coupons are the most natural next step in a real checkout and they generalise the discount model cleanly (offer + coupon stack into the same "total discount" line of the math). The second was rounding — getting consistent two-decimal-place behaviour required rounding at each intermediate step rather than only at the end, which the test suite now pins down.

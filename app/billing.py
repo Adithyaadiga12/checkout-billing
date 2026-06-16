@@ -7,10 +7,21 @@ def _round(amount: float) -> float:
     return round(amount, 2)
 
 
-def calculate_bill(items: list[Item], config: AppConfig) -> Bill:
-    """Compute subtotal, offer discount, tax, and final total for a cart."""
+def _format_coupon_label(code: str, type_: str, value: float, currency_symbol: str) -> str:
+    if type_ == "percent":
+        return f"{code} ({value:g}% off)"
+    return f"{code} ({currency_symbol}{value:.2f} off)"
+
+
+def calculate_bill(
+    items: list[Item],
+    config: AppConfig,
+    coupon_code: str | None = None,
+) -> Bill:
+    """Compute subtotal, threshold offer, optional coupon, tax, and final total."""
     subtotal = _round(sum(item.line_total for item in items))
 
+    # --- Threshold offer ---
     offer = config.offer
     if subtotal >= offer.threshold and subtotal > 0:
         discount = _round(subtotal * offer.discount_percent / 100)
@@ -21,7 +32,29 @@ def calculate_bill(items: list[Item], config: AppConfig) -> Bill:
         offer_applied = False
         amount_to_offer = _round(offer.threshold - subtotal)
 
-    taxable_amount = _round(subtotal - discount)
+    # --- Coupon (optional, stacks with threshold offer) ---
+    coupon_label = ""
+    coupon_discount = 0.0
+    coupon_min_subtotal = 0.0
+    coupon = config.coupons.get(coupon_code) if coupon_code else None
+    if coupon is not None:
+        coupon_label = _format_coupon_label(
+            coupon_code, coupon.type, coupon.value, config.currency_symbol
+        )
+        coupon_min_subtotal = coupon.min_subtotal
+        if subtotal >= coupon.min_subtotal and subtotal > 0:
+            if coupon.type == "percent":
+                coupon_discount = _round(subtotal * coupon.value / 100)
+            else:
+                # Don't let a flat coupon discount more than what's left to pay
+                remaining = max(0.0, subtotal - discount)
+                coupon_discount = _round(min(coupon.value, remaining))
+    else:
+        # Coupon code on cart but not in config (shouldn't happen via UI, but be safe)
+        coupon_code = None
+
+    total_discount = discount + coupon_discount
+    taxable_amount = _round(max(0.0, subtotal - total_discount))
     tax = _round(taxable_amount * config.tax.percent / 100)
     total = _round(taxable_amount + tax)
 
@@ -33,6 +66,10 @@ def calculate_bill(items: list[Item], config: AppConfig) -> Bill:
         offer_threshold=offer.threshold,
         amount_to_offer=amount_to_offer,
         discount=discount,
+        coupon_code=coupon_code,
+        coupon_label=coupon_label,
+        coupon_discount=coupon_discount,
+        coupon_min_subtotal=coupon_min_subtotal,
         taxable_amount=taxable_amount,
         tax_name=config.tax.name,
         tax_percent=config.tax.percent,
@@ -46,6 +83,7 @@ class Cart:
 
     def __init__(self) -> None:
         self._items: list[Item] = []
+        self.coupon_code: str | None = None
 
     def add(self, item: Item) -> None:
         # Merge with an existing line if name + price match exactly.
@@ -70,8 +108,12 @@ class Cart:
         else:
             item.quantity = new_qty
 
+    def set_coupon(self, code: str | None) -> None:
+        self.coupon_code = code
+
     def clear(self) -> None:
         self._items.clear()
+        self.coupon_code = None
 
     @property
     def items(self) -> list[Item]:
