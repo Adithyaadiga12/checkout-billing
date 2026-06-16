@@ -1,6 +1,6 @@
 # Checkout Billing System
 
-A small web app that takes items (name, price, quantity), computes a cart total, applies a configurable offer, adds tax, and shows a final printable bill.
+A small web app that takes items (name, price, quantity), computes a cart total, applies a configurable offer, adds tax, and shows a printable final bill.
 
 Built as a take-home case study.
 
@@ -8,17 +8,17 @@ Built as a take-home case study.
 
 ## Tech stack
 
-| Layer    | Choice                                                      |
-| -------- | ----------------------------------------------------------- |
-| Backend  | **FastAPI** (Python 3.10+)                                  |
-| Templates| **Jinja2**                                                  |
-| Frontend | **HTMX** for partial swaps + **Tailwind CSS** via CDN       |
-| Validation | **Pydantic v2**                                           |
-| Config   | **PyYAML** (`config.yaml` — offer & tax are editable)       |
-| Tests    | **pytest**                                                  |
-| Server   | **uvicorn**                                                 |
+| Layer       | Choice                                                |
+| ----------- | ----------------------------------------------------- |
+| Backend     | **FastAPI** (Python 3.10+)                            |
+| Templates   | **Jinja2**                                            |
+| Frontend    | **HTMX** for partial swaps + **Tailwind CSS** via CDN |
+| Validation  | **Pydantic v2**                                       |
+| Config      | **PyYAML** (`config.yaml` — offer & tax are editable) |
+| Tests       | **pytest** (18 unit tests)                            |
+| Server      | **uvicorn**                                           |
 
-No database. The cart lives in memory for one server process — keeps the demo focused on the billing logic, which is the part the assignment actually asks for.
+No database. The cart lives in memory for one server process — keeps the demo focused on the billing logic, which is what the assignment actually asks for.
 
 ---
 
@@ -26,7 +26,7 @@ No database. The cart lives in memory for one server process — keeps the demo 
 
 ```bash
 # 1. Clone and enter
-git clone <your-repo-url> checkout-billing
+git clone https://github.com/Adithyaadiga12/checkout-billing.git
 cd checkout-billing
 
 # 2. Create a virtualenv (Python 3.10+)
@@ -57,10 +57,52 @@ pytest -v
 ## How to use the app
 
 1. Open `http://127.0.0.1:8000`.
-2. Add items using the **Name / Price / Quantity** form. The cart updates without a page reload (HTMX).
-3. Remove a line with the `×` button, or **Clear all** to empty the cart.
-4. When the cart is non-empty the right panel shows a live breakdown: subtotal → offer → tax → total.
-5. Click **View final bill** for the printable bill view (`/bill`). Use **Print bill** to save as PDF.
+2. Add items using the **Name / Price / Quantity** form. The cart updates without a page reload (HTMX swap).
+3. Adjust quantity inline with the **−** / **+** buttons next to each line, or remove a line with the trash icon.
+4. While below the offer threshold the cart shows **"Add Rs. X more to unlock the offer"**. Once you cross it, that turns into a green confirmation showing how much was saved.
+5. Click **View final bill** to see the printable bill view (`/bill`). Use **Print bill** to save as PDF.
+
+---
+
+## How the math works
+
+For a cart of items, the bill is computed in five steps:
+
+```
+1. subtotal       = sum(item.price × item.quantity)
+2. discount       = subtotal × offer.discount_percent / 100   (only if subtotal ≥ offer.threshold)
+3. taxable_amount = subtotal − discount
+4. tax            = taxable_amount × tax.percent / 100
+5. total          = taxable_amount + tax
+```
+
+Every intermediate value is rounded to 2 decimal places, matching how most POS systems display money.
+
+**Worked example** (default config: 10% off above Rs. 1000, GST 18%):
+
+| Step           | Value      | Notes                                          |
+| -------------- | ---------- | ---------------------------------------------- |
+| Subtotal       | Rs. 1300.00 | 1× Bag @ 800 + 1× Notebook @ 500              |
+| Discount       | Rs. 130.00  | 1300 ≥ 1000, so 10% off                       |
+| Taxable amount | Rs. 1170.00 | 1300 − 130                                    |
+| GST (18%)      | Rs. 210.60  | 1170 × 0.18                                   |
+| **Total**      | **Rs. 1380.60** | 1170 + 210.60                            |
+
+---
+
+## API endpoints
+
+All endpoints render HTML (mostly HTMX partials for the cart). The app is server-rendered — no JSON API.
+
+| Method | Path                  | Returns      | Purpose                                            |
+| ------ | --------------------- | ------------ | -------------------------------------------------- |
+| GET    | `/`                   | Full page    | Add-item form + live cart                          |
+| POST   | `/items`              | `#cart-region` partial | Add an item (form fields: name, price, quantity) |
+| DELETE | `/items/{index}`      | `#cart-region` partial | Remove a line by index                   |
+| POST   | `/items/{index}/inc`  | `#cart-region` partial | Increment line quantity by 1            |
+| POST   | `/items/{index}/dec`  | `#cart-region` partial | Decrement line quantity by 1 (removes when it hits 0) |
+| POST   | `/cart/clear`         | `#cart-region` partial | Empty the cart                           |
+| GET    | `/bill`               | Full page    | Final printable bill (friendly empty state if cart is empty) |
 
 ---
 
@@ -79,7 +121,7 @@ tax:
   percent: 18.0
 ```
 
-Restart the server after editing. The default rule is: **if `subtotal >= threshold`, apply `discount_percent` off the subtotal.**
+Restart the server after editing. The default rule is: **if `subtotal ≥ threshold`, apply `discount_percent` off the subtotal.**
 
 ---
 
@@ -98,7 +140,7 @@ checkout-billing/
 │       ├── bill.html
 │       └── partials/cart.html
 ├── tests/
-│   └── test_billing.py  # 15 unit tests for math + validation + cart
+│   └── test_billing.py  # 18 unit tests for math, validation, and cart
 ├── config.yaml          # Offer & tax — change without touching code
 ├── requirements.txt
 ├── pyproject.toml       # pytest config
@@ -111,7 +153,7 @@ checkout-billing/
 
 - **Currency:** Indian Rupees (`Rs.`) by default — easy to change in `config.yaml`.
 - **Cart scope:** in-memory, single process. Refreshing the browser keeps the cart (server-side). Restarting the server clears it. A real deployment would use sessions or a DB.
-- **Offer rule:** one simple threshold-based percentage discount. The threshold is inclusive (`subtotal >= 1000` triggers the 10%).
+- **Offer rule:** one simple threshold-based percentage discount. The threshold is inclusive (`subtotal ≥ 1000` triggers the 10%).
 - **Tax:** flat percentage applied to `(subtotal − discount)`. No per-item tax slabs, no inclusive-tax logic.
 - **Rounding:** every money value is rounded to 2 decimal places at each step (subtotal, discount, taxable amount, tax, total) to match how POS systems usually display amounts.
 - **Item merging:** adding the same name + same price increases the quantity of the existing line. Same name with a different price stays as a separate line (treated as a different SKU).
@@ -124,6 +166,12 @@ checkout-billing/
 
 I used **Claude (Anthropic's Claude Code CLI, model Claude Opus 4.7)** as my primary pair-programmer for this case study.
 
-**How it helped.** I described the requirements and the stack I wanted (FastAPI + Jinja + HTMX + Tailwind, matching tooling I had recently learned so I could speak to it in the interview). Claude scaffolded the project layout, wrote the Pydantic models with sensible field validators, generated the pure `calculate_bill` function, set up the HTMX-driven templates for live cart updates, and produced the pytest suite covering the math edge cases (zero cart, exactly-at-threshold, multi-item, rounding) and the cart merging behaviour. It also drafted this README. My role was to specify the scope (one configurable offer, in-memory cart, no DB), make the trade-off decisions (single repo, simple offer rule, tests > extra features), review every file, and run the tests locally.
+**How it helped.** I described the requirements and the stack I wanted (FastAPI + Jinja + HTMX + Tailwind, matching tooling I had recently been learning so I could speak to it in the interview). From there, Claude scaffolded the project layout, wrote the Pydantic models with field validators, generated the pure `calculate_bill` function, set up the HTMX-driven templates for live cart updates, and produced the pytest suite covering the math edge cases (zero cart, exactly-at-threshold, multi-item, rounding) and the cart merging behaviour. It also drafted this README.
 
-**Challenges.** The main thing I had to push back on was scope: the assistant initially suggested stacking offers, coupon codes, and a persistence layer, all of which the brief explicitly asked to keep simple. Keeping the offer logic to one well-tested rule made the code easier to defend in the interview. The second was rounding — getting consistent two-decimal-place behaviour required rounding at each intermediate step rather than only at the end, which the test suite now pins down.
+Three specific moments where it added clear value:
+
+1. **Audit against the rubric.** Once the first cut was working, I asked Claude to grade what I had against each evaluation criterion. It pointed out that the inline `+`/`−` quantity buttons were missing, that `GET /bill` on an empty cart returned a raw JSON error (unfriendly UX), and that a "spend Rs. X more to unlock the offer" hint would be a quick visible polish. I picked which of those to apply.
+2. **HTMX patterns.** It got the swap targets (`hx-target="#cart-region"`, `hx-swap="outerHTML"`) and the post-submit form reset (`hx-on::after-request`) right on the first try — those are the kind of small idioms that are easy to look up but slow to assemble.
+3. **Test edge cases.** The test for "subtotal exactly at the threshold" (Rs. 1000 → offer applies because of the `≥` rule) and the rounding test came from Claude prompting me to think about boundary conditions I hadn't written down.
+
+**Challenges.** The main thing I had to push back on was scope: the assistant initially proposed stacking offers, coupon codes, and a persistence layer, all of which the brief explicitly asked to keep simple. Keeping the offer logic to one well-tested rule made the code easier to defend in the interview. The second was rounding — getting consistent two-decimal-place behaviour required rounding at each intermediate step rather than only at the end, which the test suite now pins down.

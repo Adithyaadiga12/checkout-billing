@@ -52,6 +52,7 @@ def test_empty_cart_is_zero(config):
     assert bill.tax == 0
     assert bill.total == 0
     assert bill.offer_applied is False
+    assert bill.amount_to_offer == 1000.0  # full threshold distance
 
 
 def test_below_threshold_no_offer(config):
@@ -61,6 +62,7 @@ def test_below_threshold_no_offer(config):
     assert bill.subtotal == 500.0
     assert bill.offer_applied is False
     assert bill.discount == 0.0
+    assert bill.amount_to_offer == 500.0  # need 500 more to reach threshold
     assert bill.taxable_amount == 500.0
     assert bill.tax == 90.0  # 500 * 0.18
     assert bill.total == 590.0
@@ -72,6 +74,7 @@ def test_at_threshold_triggers_offer(config):
     bill = calculate_bill(items, config)
     assert bill.offer_applied is True
     assert bill.discount == 100.0  # 10% of 1000
+    assert bill.amount_to_offer == 0.0
     assert bill.taxable_amount == 900.0
     assert bill.tax == 162.0  # 900 * 0.18
     assert bill.total == 1062.0
@@ -141,6 +144,27 @@ def test_cart_clear():
     cart.add(Item(name="A", price=10, quantity=1))
     cart.clear()
     assert cart.is_empty()
+
+
+def test_cart_update_quantity_increments():
+    cart = Cart()
+    cart.add(Item(name="A", price=10, quantity=2))
+    cart.update_quantity(0, +1)
+    assert cart.items[0].quantity == 3
+
+
+def test_cart_update_quantity_to_zero_removes_line():
+    cart = Cart()
+    cart.add(Item(name="A", price=10, quantity=1))
+    cart.update_quantity(0, -1)
+    assert cart.is_empty()
+
+
+def test_cart_update_quantity_invalid_index_is_noop():
+    cart = Cart()
+    cart.add(Item(name="A", price=10, quantity=2))
+    cart.update_quantity(5, +1)
+    assert cart.items[0].quantity == 2
 
 
 # ---------- Config edge cases ----------

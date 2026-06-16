@@ -15,9 +15,11 @@ def calculate_bill(items: list[Item], config: AppConfig) -> Bill:
     if subtotal >= offer.threshold and subtotal > 0:
         discount = _round(subtotal * offer.discount_percent / 100)
         offer_applied = True
+        amount_to_offer = 0.0
     else:
         discount = 0.0
         offer_applied = False
+        amount_to_offer = _round(offer.threshold - subtotal)
 
     taxable_amount = _round(subtotal - discount)
     tax = _round(taxable_amount * config.tax.percent / 100)
@@ -28,6 +30,8 @@ def calculate_bill(items: list[Item], config: AppConfig) -> Bill:
         subtotal=subtotal,
         offer_applied=offer_applied,
         offer_name=offer.name,
+        offer_threshold=offer.threshold,
+        amount_to_offer=amount_to_offer,
         discount=discount,
         taxable_amount=taxable_amount,
         tax_name=config.tax.name,
@@ -54,6 +58,17 @@ class Cart:
     def remove(self, index: int) -> None:
         if 0 <= index < len(self._items):
             self._items.pop(index)
+
+    def update_quantity(self, index: int, delta: int) -> None:
+        """Adjust quantity by delta. Removes the line if quantity drops to 0."""
+        if not (0 <= index < len(self._items)):
+            return
+        item = self._items[index]
+        new_qty = item.quantity + delta
+        if new_qty < 1:
+            self._items.pop(index)
+        else:
+            item.quantity = new_qty
 
     def clear(self) -> None:
         self._items.clear()

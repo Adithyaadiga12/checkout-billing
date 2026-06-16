@@ -1,7 +1,7 @@
 """FastAPI application — checkout billing system."""
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -71,6 +71,18 @@ def remove_item(request: Request, index: int):
     return _render_cart(request)
 
 
+@app.post("/items/{index}/inc", response_class=HTMLResponse)
+def increment_item(request: Request, index: int):
+    cart.update_quantity(index, +1)
+    return _render_cart(request)
+
+
+@app.post("/items/{index}/dec", response_class=HTMLResponse)
+def decrement_item(request: Request, index: int):
+    cart.update_quantity(index, -1)
+    return _render_cart(request)
+
+
 @app.post("/cart/clear", response_class=HTMLResponse)
 def clear_cart(request: Request):
     cart.clear()
@@ -79,10 +91,8 @@ def clear_cart(request: Request):
 
 @app.get("/bill", response_class=HTMLResponse)
 def view_bill(request: Request):
-    if cart.is_empty():
-        raise HTTPException(status_code=400, detail="Cart is empty")
     config = get_config()
-    bill = calculate_bill(cart.items, config)
+    bill = calculate_bill(cart.items, config) if not cart.is_empty() else None
     return templates.TemplateResponse(
         "bill.html",
         {"request": request, "bill": bill, "config": config},

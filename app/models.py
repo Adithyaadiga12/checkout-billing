@@ -29,6 +29,8 @@ class Bill(BaseModel):
     subtotal: float
     offer_applied: bool
     offer_name: str
+    offer_threshold: float
+    amount_to_offer: float  # 0 when offer already applied; otherwise "spend this much more"
     discount: float
     taxable_amount: float
     tax_name: str
