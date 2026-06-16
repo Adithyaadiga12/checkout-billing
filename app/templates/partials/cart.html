@@ -1,0 +1,67 @@
+<section id="cart-region" class="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg font-semibold">Cart</h2>
+    {% if not cart.is_empty() %}
+      <form hx-post="/cart/clear" hx-target="#cart-region" hx-swap="outerHTML">
+        <button type="submit" class="text-xs text-slate-500 hover:text-red-600 underline">Clear all</button>
+      </form>
+    {% endif %}
+  </div>
+
+  {% if error %}
+    <div class="mb-3 rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  {% if cart.is_empty() %}
+    <p class="text-sm text-slate-500">Your cart is empty. Add an item to get started.</p>
+  {% else %}
+    <ul class="divide-y divide-slate-100">
+      {% for item in cart.items %}
+        <li class="py-2 flex items-center justify-between gap-3">
+          <div>
+            <div class="font-medium">{{ item.name }}</div>
+            <div class="text-xs text-slate-500">
+              {{ config.currency_symbol }}{{ "%.2f"|format(item.price) }} &times; {{ item.quantity }}
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm font-semibold">{{ config.currency_symbol }}{{ "%.2f"|format(item.line_total) }}</span>
+            <button hx-delete="/items/{{ loop.index0 }}"
+                    hx-target="#cart-region"
+                    hx-swap="outerHTML"
+                    class="text-xs text-slate-400 hover:text-red-600"
+                    aria-label="Remove {{ item.name }}">&times;</button>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+
+    <hr class="my-4 border-slate-200" />
+
+    <dl class="space-y-1 text-sm">
+      <div class="flex justify-between">
+        <dt class="text-slate-600">Subtotal</dt>
+        <dd>{{ config.currency_symbol }}{{ "%.2f"|format(bill.subtotal) }}</dd>
+      </div>
+      <div class="flex justify-between {{ 'text-emerald-700' if bill.offer_applied else 'text-slate-400' }}">
+        <dt>Offer{{ ' applied' if bill.offer_applied else ' (not eligible)' }}</dt>
+        <dd>&minus; {{ config.currency_symbol }}{{ "%.2f"|format(bill.discount) }}</dd>
+      </div>
+      <div class="flex justify-between">
+        <dt class="text-slate-600">{{ bill.tax_name }} @ {{ bill.tax_percent }}%</dt>
+        <dd>{{ config.currency_symbol }}{{ "%.2f"|format(bill.tax) }}</dd>
+      </div>
+      <div class="flex justify-between pt-2 border-t border-slate-200 text-base font-semibold">
+        <dt>Total</dt>
+        <dd>{{ config.currency_symbol }}{{ "%.2f"|format(bill.total) }}</dd>
+      </div>
+    </dl>
+
+    <a href="/bill"
+       class="mt-4 block text-center w-full bg-emerald-600 text-white rounded px-4 py-2 font-medium hover:bg-emerald-700">
+      View final bill
+    </a>
+  {% endif %}
+</section>

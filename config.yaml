@@ -1,0 +1,11 @@
+currency: "INR"
+currency_symbol: "Rs."
+
+offer:
+  name: "10% off on orders above Rs. 1000"
+  threshold: 1000.00
+  discount_percent: 10.0
+
+tax:
+  name: "GST"
+  percent: 18.0
