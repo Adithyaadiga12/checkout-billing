@@ -1,5 +1,5 @@
 """Pure billing logic. Stateless and easy to unit-test."""
-from app.config import AppConfig
+from app.config import AppConfig, CouponConfig, OfferConfig
 from app.models import Bill, Item
 
 
@@ -13,6 +13,53 @@ def _format_coupon_label(code: str, type_: str, value: float, currency_symbol: s
     return f"{code} ({currency_symbol}{value:.2f} off)"
 
 
+def _apply_offer(subtotal: float, offer: OfferConfig) -> tuple[float, bool, float]:
+    """Compute the threshold-based offer discount.
+
+    Returns: (discount, applied, amount_to_offer)
+    - discount: rupees off the subtotal
+    - applied: True if subtotal met the threshold
+    - amount_to_offer: how much more the cart needs to reach the threshold (0 if already met)
+    """
+    if subtotal >= offer.threshold and subtotal > 0:
+        return _round(subtotal * offer.discount_percent / 100), True, 0.0
+    return 0.0, False, _round(offer.threshold - subtotal)
+
+
+def _apply_coupon(
+    subtotal: float,
+    offer_discount: float,
+    coupon_code: str | None,
+    coupons: dict[str, CouponConfig],
+    currency_symbol: str,
+) -> tuple[str | None, str, float, float]:
+    """Resolve and compute a coupon discount.
+
+    Returns: (resolved_code, label, discount, min_subtotal)
+    - resolved_code: the code if found in config, else None
+    - label: human-readable like "WELCOME10 (10% off)" or "" when no coupon
+    - discount: rupees off (0 if min_subtotal not met)
+    - min_subtotal: surfaced so the UI can render "needs Rs. X more"
+    """
+    if not coupon_code or coupon_code not in coupons:
+        return None, "", 0.0, 0.0
+
+    coupon = coupons[coupon_code]
+    label = _format_coupon_label(coupon_code, coupon.type, coupon.value, currency_symbol)
+
+    if subtotal < coupon.min_subtotal or subtotal <= 0:
+        return coupon_code, label, 0.0, coupon.min_subtotal
+
+    if coupon.type == "percent":
+        discount = _round(subtotal * coupon.value / 100)
+    else:
+        # Don't let a flat coupon discount more than what's left to pay after the offer
+        remaining = max(0.0, subtotal - offer_discount)
+        discount = _round(min(coupon.value, remaining))
+
+    return coupon_code, label, discount, coupon.min_subtotal
+
+
 def calculate_bill(
     items: list[Item],
     config: AppConfig,
@@ -21,37 +68,10 @@ def calculate_bill(
     """Compute subtotal, threshold offer, optional coupon, tax, and final total."""
     subtotal = _round(sum(item.line_total for item in items))
 
-    # --- Threshold offer ---
-    offer = config.offer
-    if subtotal >= offer.threshold and subtotal > 0:
-        discount = _round(subtotal * offer.discount_percent / 100)
-        offer_applied = True
-        amount_to_offer = 0.0
-    else:
-        discount = 0.0
-        offer_applied = False
-        amount_to_offer = _round(offer.threshold - subtotal)
-
-    # --- Coupon (optional, stacks with threshold offer) ---
-    coupon_label = ""
-    coupon_discount = 0.0
-    coupon_min_subtotal = 0.0
-    coupon = config.coupons.get(coupon_code) if coupon_code else None
-    if coupon is not None:
-        coupon_label = _format_coupon_label(
-            coupon_code, coupon.type, coupon.value, config.currency_symbol
-        )
-        coupon_min_subtotal = coupon.min_subtotal
-        if subtotal >= coupon.min_subtotal and subtotal > 0:
-            if coupon.type == "percent":
-                coupon_discount = _round(subtotal * coupon.value / 100)
-            else:
-                # Don't let a flat coupon discount more than what's left to pay
-                remaining = max(0.0, subtotal - discount)
-                coupon_discount = _round(min(coupon.value, remaining))
-    else:
-        # Coupon code on cart but not in config (shouldn't happen via UI, but be safe)
-        coupon_code = None
+    discount, offer_applied, amount_to_offer = _apply_offer(subtotal, config.offer)
+    resolved_code, coupon_label, coupon_discount, coupon_min_subtotal = _apply_coupon(
+        subtotal, discount, coupon_code, config.coupons, config.currency_symbol
+    )
 
     total_discount = discount + coupon_discount
     taxable_amount = _round(max(0.0, subtotal - total_discount))
@@ -62,11 +82,11 @@ def calculate_bill(
         items=items,
         subtotal=subtotal,
         offer_applied=offer_applied,
-        offer_name=offer.name,
-        offer_threshold=offer.threshold,
+        offer_name=config.offer.name,
+        offer_threshold=config.offer.threshold,
         amount_to_offer=amount_to_offer,
         discount=discount,
-        coupon_code=coupon_code,
+        coupon_code=resolved_code,
         coupon_label=coupon_label,
         coupon_discount=coupon_discount,
         coupon_min_subtotal=coupon_min_subtotal,
